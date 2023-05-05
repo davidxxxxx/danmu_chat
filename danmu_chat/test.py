@@ -2,11 +2,10 @@
 import queue
 import time
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 from matplotlib.animation import FuncAnimation
-from matplotlib.dates import date2num, DateFormatter
 from collections import deque
 from datetime import datetime, timedelta
+import matplotlib.dates as mdates
 
 from pydouyu.client import Client
 import sqlite3
@@ -14,11 +13,10 @@ import sqlite3
 # Queues for sharing data between threads
 data_queue = queue.Queue()
 db_queue = queue.Queue()
-
-# Deque for storing messages
 messages = deque()
 
 def db_worker():
+    # Database setup
     conn = sqlite3.connect('danmu.db')
     cursor = conn.cursor()
 
@@ -41,10 +39,10 @@ def db_worker():
 
     conn.close()
 
+
 def chatmsg_handler(msg):
-    msg['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     db_queue.put(msg)
-    messages.append(msg)
+    data_queue.put(msg)
     output = time.strftime("[%Y-%m-%d %H:%M:%S] ", time.localtime()) + msg['nn'] + ": " + msg['txt']
     print(output)
 
@@ -53,11 +51,10 @@ def data_collector(room_id):
     c.add_handler('chatmsg', chatmsg_handler)
     c.start()
 
-
 def plotter():
     fig, ax = plt.subplots()
     xdata, ydata = [], []
-    ln, = plt.plot([], [], 'r-')
+    ln, = plt.plot([], [], 'r-', animated=True)
 
     def count_per_interval(interval):
         now = datetime.now()
@@ -75,37 +72,53 @@ def plotter():
         return counter
 
     def init():
-        ax.set_ylim(0, 5)
-        ax.set_xlim([datetime.now(), datetime.now() + timedelta(seconds=30)])
-        del xdata[:]
-        del ydata[:]
+        ax.set_xlim([datetime.now() - timedelta(minutes=5), datetime.now()])
+        ax.set_ylim(0, 100)
         return ln,
 
     def update(frame):
-        counter = count_per_interval(30)
         xdata.append(datetime.now())  # append current time
-        ydata.append(counter)
+        ydata.append(count_per_interval(30))
+        if len(xdata) > 10:  # limit the length of data
+            xdata.pop(0)
+            ydata.pop(0)
+
         ln.set_data(xdata, ydata)
         ax.relim()
-        ax.autoscale_view()
-        ax.xaxis_date()
+        ax.autoscale_view(scalex=False)  # only autoscale y-axis
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
-        ax.yaxis.get_major_locator().set_params(integer=True)  # ensure y-axis uses integer ticks
         return ln,
-  #  ani = FuncAnimation(fig, update, interval=30000, blit=True, cache_frame_data=False)
 
-    ani = FuncAnimation(fig, init_func=init, func=update, frames=None, interval=30000, blit=True)
+    # Start the animation
+    ani = FuncAnimation(fig, update, frames=None, init_func=init, interval=30000, blit=True, repeat=True)
     plt.show()
 
+def process_queue():
+    while True:
+        try:
+            msg = data_queue.get(timeout=1)
+            msg['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            messages.append(msg)
+        except queue.Empty:
+            pass
 
+# Start the database worker thread
 db_thread = threading.Thread(target=db_worker)
 db_thread.start()
 
-room_id = 73965  # replace with your room id
+# Start the data collector thread
+room_id = 88660  # replace with your room id
 collector_thread = threading.Thread(target=data_collector, args=(room_id,))
 collector_thread.start()
 
+# Start the queue processing thread
+process_thread = threading.Thread(target=process_queue)
+process_thread.start()
+
+# Start the plotter in the main thread
 plotter()
 
+# Send exit signal to the database worker thread
 db_queue.put(None)
 db_thread.join()
+
