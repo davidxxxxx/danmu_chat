@@ -73,7 +73,7 @@ def live_plot():
 
 plot_thread = Thread(target=live_plot)
 
-c = Client(room_id=52876)
+c = Client(room_id=762484)
 c.add_handler('chatmsg', chatmsg_handler)
 c.add_handler('uenter', uenter_handler)
 plot_thread.start()

@@ -1,19 +1,18 @@
-﻿import threading
+﻿import multiprocessing
 import queue
 import time
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
-from collections import deque
 from datetime import datetime, timedelta
 import matplotlib.dates as mdates
+from multiprocessing import Manager
 
 from pydouyu.client import Client
 import sqlite3
 
 # Queues for sharing data between threads
-data_queue = queue.Queue()
-db_queue = queue.Queue()
-messages = deque()
+db_queue = multiprocessing.Queue()
+shared_queue = multiprocessing.Queue()
 
 def db_worker():
     # Database setup
@@ -39,37 +38,22 @@ def db_worker():
 
     conn.close()
 
-
-def chatmsg_handler(msg):
+def chatmsg_handler(msg, temp_messages):
+    msg['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     db_queue.put(msg)
-    data_queue.put(msg)
+    temp_messages.append(msg)
     output = time.strftime("[%Y-%m-%d %H:%M:%S] ", time.localtime()) + msg['nn'] + ": " + msg['txt']
     print(output)
 
-def data_collector(room_id):
+def data_collector(room_id, temp_messages):
     c = Client(room_id=room_id)
-    c.add_handler('chatmsg', chatmsg_handler)
+    c.add_handler('chatmsg', lambda msg: chatmsg_handler(msg, temp_messages))
     c.start()
 
-def plotter():
+def plotter(temp_messages):
     fig, ax = plt.subplots()
     xdata, ydata = [], []
-    ln, = plt.plot([], [], 'r-', animated=True)
-
-    def count_per_interval(interval):
-        now = datetime.now()
-        delta = timedelta(seconds=interval)
-        counter = 0
-        while len(messages) > 0:  # as long as there are messages left
-            timestamp_str = messages[0].get('timestamp')
-            if timestamp_str is not None:
-                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
-                if now - timestamp <= delta:
-                    counter += 1
-                    messages.popleft()  # remove this message
-                else:
-                    break  # if this message is out of interval, so are the rest
-        return counter
+    ln, = plt.plot([], [], 'r-', animated=False)
 
     def init():
         ax.set_xlim([datetime.now() - timedelta(minutes=5), datetime.now()])
@@ -77,48 +61,47 @@ def plotter():
         return ln,
 
     def update(frame):
+        now = datetime.now()
+        delta = timedelta(seconds=10)
+        counter = sum(1 for msg in temp_messages if now - datetime.strptime(msg['timestamp'], '%Y-%m-%d %H:%M:%S') <= delta)
+
         xdata.append(datetime.now())  # append current time
-        ydata.append(count_per_interval(30))
+        ydata.append(counter)
+        print(counter)
         if len(xdata) > 10:  # limit the length of data
             xdata.pop(0)
             ydata.pop(0)
 
         ln.set_data(xdata, ydata)
-        ax.relim()
-        ax.autoscale_view(scalex=False)  # only autoscale y-axis
+        ax.set_xlim(min(xdata), max(xdata))
+        ax.set_ylim(min(ydata), max(ydata))
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         return ln,
 
     # Start the animation
-    ani = FuncAnimation(fig, update, frames=None, init_func=init, interval=30000, blit=True, repeat=True)
+    ani = FuncAnimation(fig, update, frames=None, init_func=init, interval=10000, blit=False, repeat=True)
     plt.show()
 
-def process_queue():
-    while True:
-        try:
-            msg = data_queue.get(timeout=1)
-            msg['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            messages.append(msg)
-        except queue.Empty:
-            pass
+if __name__ == '__main__':
+    with Manager() as manager:
+        # Create a shared list for storing messages in a 10-second interval
+        temp_messages = manager.list()
 
-# Start the database worker thread
-db_thread = threading.Thread(target=db_worker)
-db_thread.start()
+        # Start the database worker thread
+        db_thread = multiprocessing.Process(target=db_worker)
+        db_thread.start()
 
-# Start the data collector thread
-room_id = 88660  # replace with your room id
-collector_thread = threading.Thread(target=data_collector, args=(room_id,))
-collector_thread.start()
+        # Start the data collector thread
+        room_id = 762484  # replace with your room id
+        collector_thread = multiprocessing.Process(target=data_collector, args=(room_id, temp_messages))
+        collector_thread.start()
 
-# Start the queue processing thread
-process_thread = threading.Thread(target=process_queue)
-process_thread.start()
+        # Start the plotter in the main thread
+        plotter(temp_messages)
 
-# Start the plotter in the main thread
-plotter()
+        # Send exit signal to the database worker thread
+        db_queue.put(None)
+        db_thread.join()
 
-# Send exit signal to the database worker thread
-db_queue.put(None)
-db_thread.join()
-
+        # Terminate the other processes
+        collector_thread.terminate()
