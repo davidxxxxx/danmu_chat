@@ -53,10 +53,10 @@ def data_collector(room_id, temp_messages):
 def plotter(temp_messages):
     fig, ax = plt.subplots()
     xdata, ydata = [], []
-    ln, = plt.plot([], [], 'r-', animated=False)
+    ln, = plt.plot([], [], 'r*-', animated=False)
 
     def init():
-        ax.set_xlim([datetime.now() - timedelta(minutes=5), datetime.now()])
+        ax.set_xlim([datetime.now(),datetime.now() + timedelta(minutes=5)])
         ax.set_ylim(0, 100)
         return ln,
 
@@ -82,26 +82,40 @@ def plotter(temp_messages):
     ani = FuncAnimation(fig, update, frames=None, init_func=init, interval=10000, blit=False, repeat=True)
     plt.show()
 
-if __name__ == '__main__':
+def room_worker(room_id):
     with Manager() as manager:
         # Create a shared list for storing messages in a 10-second interval
         temp_messages = manager.list()
 
-        # Start the database worker thread
-        db_thread = multiprocessing.Process(target=db_worker)
-        db_thread.start()
+        # Start the data collector
+        data_collector_thread = multiprocessing.Process(target=data_collector, args=(room_id, temp_messages))
+        data_collector_thread.start()
 
-        # Start the data collector thread
-        room_id = 762484  # replace with your room id
-        collector_thread = multiprocessing.Process(target=data_collector, args=(room_id, temp_messages))
-        collector_thread.start()
-
-        # Start the plotter in the main thread
+        # Start the plotter        
         plotter(temp_messages)
 
-        # Send exit signal to the database worker thread
-        db_queue.put(None)
-        db_thread.join()
+        # Terminate the data collector process
+        data_collector_thread.terminate()
 
-        # Terminate the other processes
-        collector_thread.terminate()
+if __name__ == '__main__':
+    # Start the database worker thread
+    db_thread = multiprocessing.Process(target=db_worker)
+    db_thread.start()
+
+    # Room IDs to monitor
+    room_ids = [9999]  # Replace with your desired room ids
+
+    # Create and start room worker processes for each room
+    room_workers = []
+    for room_id in room_ids:
+        room_worker_process = multiprocessing.Process(target=room_worker, args=(room_id,))
+        room_worker_process.start()
+        room_workers.append(room_worker_process)
+
+    # Wait for all room workers to finish
+    for worker in room_workers:
+        worker.join()
+
+    # Send exit signal to the database worker thread
+    db_queue.put(None)
+    db_thread.join()

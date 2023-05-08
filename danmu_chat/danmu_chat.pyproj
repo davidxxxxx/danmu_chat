@@ -4,7 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>9907c8ed-2470-4109-89c6-344aebf6b717</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>test.py</StartupFile>
+    <StartupFile>main.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -24,7 +24,12 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="danmu_start.py" />
+    <Compile Include="backend.py" />
+    <Compile Include="database.py" />
+    <Compile Include="data_collector.py" />
+    <Compile Include="gui.py" />
+    <Compile Include="live_plotter.py" />
+    <Compile Include="main.py" />
     <Compile Include="test.py" />
   </ItemGroup>
   <ItemGroup>
