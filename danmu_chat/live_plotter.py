@@ -3,7 +3,7 @@ from matplotlib.animation import FuncAnimation
 from datetime import datetime, timedelta
 import matplotlib.dates as mdates
 
-def live_plotter(room_id, db_queue):
+def live_plotter(room_id, message_queue):
     fig, ax = plt.subplots()
     xdata, ydata = [], []
     ln, = plt.plot([], [], 'r*-', animated=False)
@@ -19,8 +19,8 @@ def live_plotter(room_id, db_queue):
 
         # Get messages from the queue
         temp_messages = []
-        while not db_queue.empty():
-            temp_messages.append(db_queue.get())
+        while not message_queue.empty():
+            temp_messages.append(message_queue.get())
 
         counter = sum(1 for msg in temp_messages if now - datetime.strptime(msg['timestamp'], '%Y-%m-%d %H:%M:%S') <= delta)
 
@@ -32,11 +32,19 @@ def live_plotter(room_id, db_queue):
             ydata.pop(0)
 
         ln.set_data(xdata, ydata)
-        ax.set_xlim(min(xdata), max(xdata))
-        ax.set_ylim(min(ydata), max(ydata))
+
+        if len(xdata) > 1 and len(ydata) > 1:
+            ax.set_xlim(min(xdata), max(xdata))
+            ax.set_ylim(min(ydata)-5, max(ydata)+5)  # Add a small margin to the limits of the y-axis
+
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         return ln,
 
+    # Set axis labels and title
+    ax.set_xlabel('Real-time')
+    ax.set_ylabel('Danmu counts')
+    ax.set_title(f'Monitoring Room {room_id}')
+
     # Start the animation
-    ani = FuncAnimation(fig, update, frames=None, init_func=init, interval=10000, blit=False, repeat=True)
+    ani = FuncAnimation(fig, update, frames=None, init_func=init, interval=10000, blit=False, repeat=True, cache_frame_data=False)
     plt.show()
